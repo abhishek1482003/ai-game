@@ -1,0 +1,114 @@
+import numpy as np
+import random
+
+# Grid size
+GRID_SIZE = 5
+
+# Directions (8 possible directions)
+DIRECTIONS = [(-1, -1), (-1, 0), (-1, 1),
+              (0, -1),          (0, 1),
+              (1, -1),  (1, 0), (1, 1)]
+
+# Helper functions
+def is_valid(x, y):
+    return 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE
+
+def get_direction(dx, dy):
+    """Convert (dx, dy) to a direction index (0-7)."""
+    return DIRECTIONS.index((dx, dy))
+
+def calculate_correct_direction(x, y, goal_x, goal_y):
+    """Calculate the correct direction towards the goal."""
+    dx = np.sign(goal_x - x)
+    dy = np.sign(goal_y - y)
+    return get_direction(dx, dy)
+
+def generate_grid(goal_x, goal_y):
+    """Generate the grid with arrows and wrong arrow counts."""
+    grid = np.zeros((GRID_SIZE, GRID_SIZE), dtype=object)
+    for x in range(GRID_SIZE):
+        for y in range(GRID_SIZE):
+            # Randomly decide if the arrow is correct or wrong
+            is_correct = random.random() < 0.7  # 70% chance of correct arrow
+            if is_correct:
+                direction = calculate_correct_direction(x, y, goal_x, goal_y)
+            else:
+                direction = random.randint(0, 7)  # Random direction
+            grid[x, y] = {'direction': direction, 'is_correct': is_correct}
+    return grid
+
+def calculate_wrong_arrow_counts(grid):
+    """Calculate the number of wrong arrows in the surrounding cells."""
+    wrong_counts = np.zeros((GRID_SIZE, GRID_SIZE), dtype=int)
+    for x in range(GRID_SIZE):
+        for y in range(GRID_SIZE):
+            count = 0
+            for dx, dy in DIRECTIONS:
+                nx, ny = x + dx, y + dy
+                if is_valid(nx, ny) and not grid[nx, ny]['is_correct']:
+                    count += 1
+            wrong_counts[x, y] = count
+    return wrong_counts
+
+def print_grid(grid, wrong_counts, player_x, player_y):
+    """Print the grid with arrows and wrong arrow counts."""
+    for x in range(GRID_SIZE):
+        for y in range(GRID_SIZE):
+            if x == player_x and y == player_y:
+                print("P", end=" ")
+            else:
+                arrow = DIRECTIONS[grid[x, y]['direction']]
+                arrow_symbol = ["↖", "↑", "↗", "←", "→", "↙", "↓", "↘"][grid[x, y]['direction']]
+                print(f"{arrow_symbol}{wrong_counts[x, y]}", end=" ")
+        print()
+
+# Main game loop
+def play_game():
+    # Place the goal randomly
+    goal_x, goal_y = random.randint(0, GRID_SIZE - 1), random.randint(0, GRID_SIZE - 1)
+
+    # Generate the grid
+    grid = generate_grid(goal_x, goal_y)
+    wrong_counts = calculate_wrong_arrow_counts(grid)
+
+    # Player starts at (0, 0)
+    player_x, player_y = 0, 0
+
+    while (player_x, player_y) != (goal_x, goal_y):
+        print("\nCurrent Grid:")
+        print_grid(grid, wrong_counts, player_x, player_y)
+
+        # Get player move
+        move = input("Enter move (U/D/L/R/UL/UR/DL/DR): ").upper()
+        dx, dy = 0, 0
+        if move == "U":
+            dx, dy = -1, 0
+        elif move == "D":
+            dx, dy = 1, 0
+        elif move == "L":
+            dx, dy = 0, -1
+        elif move == "R":
+            dx, dy = 0, 1
+        elif move == "UL":
+            dx, dy = -1, -1
+        elif move == "UR":
+            dx, dy = -1, 1
+        elif move == "DL":
+            dx, dy = 1, -1
+        elif move == "DR":
+            dx, dy = 1, 1
+        else:
+            print("Invalid move! Try again.")
+            continue
+
+        # Update player position
+        new_x, new_y = player_x + dx, player_y + dy
+        if is_valid(new_x, new_y):
+            player_x, player_y = new_x, new_y
+        else:
+            print("Invalid move! Out of bounds.")
+
+    print("\nCongratulations! You reached the goal!")
+
+# Start the game
+play_game()
