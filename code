@@ -1,114 +1,190 @@
 import numpy as np
+import pygame
+import sys
 import random
 
-# Grid size
-GRID_SIZE = 5
+# ------------------
+# Laser Labyrinth Environment
+# ------------------
+class LaserMazeEnv:
+    def __init__(self, grid, lasers, start, goal, period):
+        """
+        grid   : 2D list (0=free, 1=wall)
+        lasers : list of tuples (x, y, orientation, period)
+                 orientation: 'h' or 'v'
+        start  : (x,y)
+        goal   : (x,y)
+        period : int, global period for all lasers
+        """
+        self.grid = np.array(grid)
+        self.height, self.width = self.grid.shape
+        self.lasers = lasers
+        self.start = start
+        self.goal = goal
+        self.period = period
+        self.reset()
 
-# Directions (8 possible directions)
-DIRECTIONS = [(-1, -1), (-1, 0), (-1, 1),
-              (0, -1),          (0, 1),
-              (1, -1),  (1, 0), (1, 1)]
+    def reset(self):
+        self.pos = self.start
+        self.t = 0
+        return self._get_state()
 
-# Helper functions
-def is_valid(x, y):
-    return 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE
-
-def get_direction(dx, dy):
-    """Convert (dx, dy) to a direction index (0-7)."""
-    return DIRECTIONS.index((dx, dy))
-
-def calculate_correct_direction(x, y, goal_x, goal_y):
-    """Calculate the correct direction towards the goal."""
-    dx = np.sign(goal_x - x)
-    dy = np.sign(goal_y - y)
-    return get_direction(dx, dy)
-
-def generate_grid(goal_x, goal_y):
-    """Generate the grid with arrows and wrong arrow counts."""
-    grid = np.zeros((GRID_SIZE, GRID_SIZE), dtype=object)
-    for x in range(GRID_SIZE):
-        for y in range(GRID_SIZE):
-            # Randomly decide if the arrow is correct or wrong
-            is_correct = random.random() < 0.7  # 70% chance of correct arrow
-            if is_correct:
-                direction = calculate_correct_direction(x, y, goal_x, goal_y)
-            else:
-                direction = random.randint(0, 7)  # Random direction
-            grid[x, y] = {'direction': direction, 'is_correct': is_correct}
-    return grid
-
-def calculate_wrong_arrow_counts(grid):
-    """Calculate the number of wrong arrows in the surrounding cells."""
-    wrong_counts = np.zeros((GRID_SIZE, GRID_SIZE), dtype=int)
-    for x in range(GRID_SIZE):
-        for y in range(GRID_SIZE):
-            count = 0
-            for dx, dy in DIRECTIONS:
-                nx, ny = x + dx, y + dy
-                if is_valid(nx, ny) and not grid[nx, ny]['is_correct']:
-                    count += 1
-            wrong_counts[x, y] = count
-    return wrong_counts
-
-def print_grid(grid, wrong_counts, player_x, player_y):
-    """Print the grid with arrows and wrong arrow counts."""
-    for x in range(GRID_SIZE):
-        for y in range(GRID_SIZE):
-            if x == player_x and y == player_y:
-                print("P", end=" ")
-            else:
-                arrow = DIRECTIONS[grid[x, y]['direction']]
-                arrow_symbol = ["↖", "↑", "↗", "←", "→", "↙", "↓", "↘"][grid[x, y]['direction']]
-                print(f"{arrow_symbol}{wrong_counts[x, y]}", end=" ")
-        print()
-
-# Main game loop
-def play_game():
-    # Place the goal randomly
-    goal_x, goal_y = random.randint(0, GRID_SIZE - 1), random.randint(0, GRID_SIZE - 1)
-
-    # Generate the grid
-    grid = generate_grid(goal_x, goal_y)
-    wrong_counts = calculate_wrong_arrow_counts(grid)
-
-    # Player starts at (0, 0)
-    player_x, player_y = 0, 0
-
-    while (player_x, player_y) != (goal_x, goal_y):
-        print("\nCurrent Grid:")
-        print_grid(grid, wrong_counts, player_x, player_y)
-
-        # Get player move
-        move = input("Enter move (U/D/L/R/UL/UR/DL/DR): ").upper()
-        dx, dy = 0, 0
-        if move == "U":
-            dx, dy = -1, 0
-        elif move == "D":
-            dx, dy = 1, 0
-        elif move == "L":
-            dx, dy = 0, -1
-        elif move == "R":
-            dx, dy = 0, 1
-        elif move == "UL":
-            dx, dy = -1, -1
-        elif move == "UR":
-            dx, dy = -1, 1
-        elif move == "DL":
-            dx, dy = 1, -1
-        elif move == "DR":
-            dx, dy = 1, 1
+    def step(self, action):
+        # Actions: 0=up,1=down,2=left,3=right,4=wait
+        x, y = self.pos
+        if action == 0:
+            nx, ny = x, y - 1
+        elif action == 1:
+            nx, ny = x, y + 1
+        elif action == 2:
+            nx, ny = x - 1, y
+        elif action == 3:
+            nx, ny = x + 1, y
         else:
-            print("Invalid move! Try again.")
-            continue
+            nx, ny = x, y
 
-        # Update player position
-        new_x, new_y = player_x + dx, player_y + dy
-        if is_valid(new_x, new_y):
-            player_x, player_y = new_x, new_y
-        else:
-            print("Invalid move! Out of bounds.")
+        hit_wall = False
+        if not (0 <= nx < self.width and 0 <= ny < self.height) or self.grid[ny, nx] == 1:
+            nx, ny = x, y
+            hit_wall = True
 
-    print("\nCongratulations! You reached the goal!")
+        self.pos = (nx, ny)
+        self.t += 1
+        reward = -1
+        done = False
 
-# Start the game
-play_game()
+        # Check laser collision
+        for lx, ly, orient, per in self.lasers:
+            phase = self.t % per
+            if orient == 'h':
+                # horizontal sweep: beam along row ly, columns varying
+                if ny == ly and (phase < per//2 and abs(nx - lx) <= phase):
+                    reward -= 10
+                    done = True
+            else:
+                # vertical sweep
+                if nx == lx and (phase < per//2 and abs(ny - ly) <= phase):
+                    reward -= 10
+                    done = True
+
+        # Check goal
+        if self.pos == self.goal:
+            reward += 20
+            done = True
+
+        return self._get_state(), reward, done, {}
+
+    def _get_state(self):
+        # state as (x,y,t_mod)
+        return (self.pos[0], self.pos[1], self.t % self.period)
+
+# ------------------
+# Q-Learning Agent
+# ------------------
+def train_q_learning(env, episodes=1000, alpha=0.1, gamma=0.99, epsilon=1.0, eps_decay=0.995, min_eps=0.01):
+    # Q-table dims: width x height x period x actions
+    Q = np.zeros((env.width, env.height, env.period, 5))
+
+    for ep in range(episodes):
+        state = env.reset()
+        done = False
+        while not done:
+            x, y, tmod = state
+            if random.random() < epsilon:
+                action = random.randint(0, 4)
+            else:
+                action = np.argmax(Q[x, y, tmod])
+
+            next_state, reward, done, _ = env.step(action)
+            nx, ny, nt = next_state
+
+            # Q update
+            Q[x, y, tmod, action] += alpha * (reward + gamma * np.max(Q[nx, ny, nt]) - Q[x, y, tmod, action])
+            state = next_state
+
+        epsilon = max(min_eps, epsilon * eps_decay)
+        if (ep + 1) % 100 == 0:
+            print(f"Episode {ep+1}/{episodes} done, epsilon={epsilon:.3f}")
+    return Q
+
+# ------------------
+# Visualization with Pygame
+# ------------------
+def visualize(env, Q, cell_size=60):
+    pygame.init()
+    screen = pygame.display.set_mode((env.width * cell_size, env.height * cell_size))
+    clock = pygame.time.Clock()
+    font = pygame.font.SysFont(None, 24)
+
+    state = env.reset()
+    done = False
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+        if not done:
+            x, y, tmod = state
+            action = np.argmax(Q[x, y, tmod])
+            state, _, done, _ = env.step(action)
+
+        # Draw grid
+        screen.fill((30, 30, 30))
+        for row in range(env.height):
+            for col in range(env.width):
+                rect = pygame.Rect(col*cell_size, row*cell_size, cell_size, cell_size)
+                color = (200,200,200) if env.grid[row, col] == 1 else (50,50,50)
+                pygame.draw.rect(screen, color, rect)
+                pygame.draw.rect(screen, (100,100,100), rect, 1)
+
+        # Draw goal
+        gx, gy = env.goal
+        pygame.draw.rect(screen, (0,255,0), pygame.Rect(gx*cell_size, gy*cell_size, cell_size, cell_size))
+
+        # Draw lasers
+        for lx, ly, orient, per in env.lasers:
+            phase = env.t % per
+            if orient == 'h' and phase < per//2:
+                length = phase + 1
+                pygame.draw.line(screen, (255,0,0), ((lx-length)*cell_size+cell_size//2, ly*cell_size+cell_size//2), ((lx+length)*cell_size+cell_size//2, ly*cell_size+cell_size//2), 4)
+            elif orient == 'v' and phase < per//2:
+                length = phase + 1
+                pygame.draw.line(screen, (255,0,0), (lx*cell_size+cell_size//2, (ly-length)*cell_size+cell_size//2), (lx*cell_size+cell_size//2, (ly+length)*cell_size+cell_size//2), 4)
+
+        # Draw agent
+        px, py, _ = state
+        pygame.draw.circle(screen, (0,0,255), (px*cell_size+cell_size//2, py*cell_size+cell_size//2), cell_size//3)
+
+        pygame.display.flip()
+        clock.tick(5)
+
+# ------------------
+# Main
+# ------------------
+if __name__ == '__main__':
+    # Sample maze: 6x6, 1=wall
+    grid = [
+        [0,0,0,0,0,0],
+        [0,1,1,0,1,0],
+        [0,1,0,0,1,0],
+        [0,1,0,1,1,0],
+        [0,0,0,0,0,0],
+        [0,1,1,1,1,0],
+    ]
+    lasers = [
+        # x, y, orientation, period
+        (2, 2, 'h', 6),  # horizontal laser at (2,2)
+        (4, 4, 'v', 8),  # vertical laser at (4,4)
+    ]
+    start = (0,0)
+    goal = (5,5)
+    period = 8
+
+    env = LaserMazeEnv(grid, lasers, start, goal, period)
+    print("Training Q-learning agent...")
+    Q = train_q_learning(env, episodes=1000)
+    print("Training complete. Launching visualization...")
+    visualize(env, Q)
+
